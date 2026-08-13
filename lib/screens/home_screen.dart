@@ -36,7 +36,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _loadPrinters() async {
-    final sumatra = ref.read(sumatraPathProvider).valueOrNull;
+    // Wait briefly for the SumatraPDF path to resolve (it's checked beside
+    // the exe at startup). If it doesn't resolve in 3s, proceed — the WMI
+    // fallback in PrinterService will find printers anyway.
+    String? sumatra;
+    try {
+      sumatra = await ref.read(sumatraPathProvider.future)
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {
+      sumatra = null;
+    }
     final printers = await PrinterService.listPrinters(sumatraExePath: sumatra);
     if (mounted) {
       setState(() {
@@ -128,6 +137,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             body: Column(
               children: [
+                _warningBanner(),
                 _dropZone(),
                 const SizedBox(height: 8),
                 Expanded(child: _jobList(batch, running)),
@@ -152,6 +162,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _warningBanner() {
+    final health = ref.watch(appHealthProvider).valueOrNull;
+    final warnings = <String>[];
+
+    // Database health.
+    if (health != null && !health.dbAvailable) {
+      warnings.add(
+          'Database unavailable — persistence disabled. ${health.dbError ?? ""}');
+    }
+
+    // Printer detection (only show after loading completes).
+    if (!_loadingPrinters && _printers.isEmpty) {
+      warnings.add(
+          'No printers detected. Make sure a printer is installed in Windows '
+          '(Settings → Devices → Printers & scanners), then restart PrintFlow.');
+    }
+
+    if (warnings.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.amber.shade100,
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded,
+              color: Colors.orange, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              warnings.join('  •  '),
+              style: const TextStyle(fontSize: 12, color: Colors.brown),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -253,6 +302,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _printerSelector(),
+              IconButton(
+                tooltip: 'Re-scan printers',
+                icon: const Icon(Icons.refresh),
+                onPressed: () {
+                  setState(() => _loadingPrinters = true);
+                  _loadPrinters();
+                },
+              ),
               _stepper(
                 label: 'Copies',
                 value: _copies,
@@ -324,6 +381,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             SizedBox(width: 8),
             Text('Detecting printers…'),
           ],
+        ),
+      );
+    }
+    if (_printers.isEmpty) {
+      return SizedBox(
+        width: 260,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: 'Printer',
+            isDense: true,
+            border: const OutlineInputBorder(),
+            errorText: 'No printers found',
+            errorStyle: const TextStyle(fontSize: 11),
+          ),
+          child: const Text('— none —',
+              style: TextStyle(color: Colors.grey)),
         ),
       );
     }
