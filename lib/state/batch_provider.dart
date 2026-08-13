@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:printflow/models/batch.dart';
 import 'package:printflow/models/print_job.dart';

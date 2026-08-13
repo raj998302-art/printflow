@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:printflow/models/batch.dart';
 import 'package:printflow/models/print_job.dart';
 import 'package:printflow/state/providers.dart';
 import 'package:printflow/state/batch_provider.dart';

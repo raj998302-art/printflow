@@ -1,3 +1,5 @@
+import 'package:printflow/models/print_job.dart';
+
 /// Builds the SumatraPDF `-print-settings` page-range string from an exclusion list.
 ///
 /// Example (PRD §10): a 10-page file with pages 3 and 7 excluded → "1-2,4-6,8-10".

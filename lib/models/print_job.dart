@@ -104,7 +104,7 @@ class PrintJob {
 
   /// Human readable page summary, e.g. "8/10 pages".
   String get pageCountLabel =>
-      excludedPages.isEmpty ? '$pageCount pages' : '${effectivePageCount}/$pageCount pages';
+      excludedPages.isEmpty ? '$pageCount pages' : '$effectivePageCount/$pageCount pages';
 
   Duration? get elapsed => (startedAt != null)
       ? (completedAt ?? DateTime.now()).difference(startedAt!)

@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Batch;
+import 'package:sqflite/sqflite.dart' hide Batch;
 
 import 'package:printflow/models/batch.dart';
 import 'package:printflow/models/print_job.dart';

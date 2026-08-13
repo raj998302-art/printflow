@@ -278,6 +278,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _save(AppSettings next) async {
-    await ref.read(settingsProvider.notifier).update(next);
+    await ref.read(settingsProvider.notifier).save(next);
   }
 }

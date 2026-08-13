@@ -9,7 +9,6 @@ import 'package:intl/intl.dart';
 import 'package:printflow/models/batch.dart';
 import 'package:printflow/models/print_job.dart';
 import 'package:printflow/services/database_service.dart';
-import 'package:printflow/state/providers.dart';
 
 /// History screen (PRD §11 screen 4, Module 8): past batches + per-job logs
 /// + CSV export for cross-checking against the GST invoice sheet.

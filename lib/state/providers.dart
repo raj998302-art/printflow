@@ -13,7 +13,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
   @override
   Future<AppSettings> build() => DatabaseService.loadSettings();
 
-  Future<void> update(AppSettings next) async {
+  Future<void> save(AppSettings next) async {
     await DatabaseService.saveSettings(next);
     state = AsyncData(next);
   }

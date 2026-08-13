@@ -1,3 +1,5 @@
+import 'package:printflow/models/print_job.dart';
+
 /// App-wide settings (PRD §9 Settings model + Module 9).
 class AppSettings {
   int pollIntervalMs;
