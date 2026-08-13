@@ -1,0 +1,108 @@
+name: Build Windows
+
+# Builds the PrintFlow Flutter Windows desktop application on every push and
+# PR to main, and on manual dispatch. The resulting portable folder (with the
+# bundled SumatraPDF.exe) is published as a GitHub Actions artifact.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build PrintFlow (.exe) on Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      # Generate the Windows platform runner if it isn't committed. `flutter
+      # create .` only creates missing files and never overwrites lib/.
+      - name: Enable Windows desktop & generate runner
+        run: |
+          flutter config --enable-windows-desktop
+          flutter create . --platforms=windows --org com.eskayprinters --project-name printflow
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze (non-blocking)
+        run: flutter analyze || true
+
+      # Bundles SumatraPDF (portable, GPLv3) next to the app so the print
+      # engine works out-of-the-box. continue-on-error keeps the build green
+      # if the upstream download is temporarily unavailable; the app still
+      # ships and offers an in-app "Download SumatraPDF" button in Settings.
+      - name: Download SumatraPDF (portable) into assets
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $url = "https://www.sumatrapdfreader.org/dl/rel/3.5.2/sumatrapdf-3.5.2-64.zip"
+          $tmp = Join-Path $env:RUNNER_TEMP "sumatra.zip"
+          $out = Join-Path $env:GITHUB_WORKSPACE "assets"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Write-Host "Downloading $url"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $tmp -MaximumRedirection 10
+            Expand-Archive -Path $tmp -DestinationPath $out -Force
+            $exe = Get-ChildItem -Path $out -Recurse -Filter "SumatraPDF.exe" | Select-Object -First 1
+            if ($exe) {
+              Copy-Item $exe.FullName -Destination (Join-Path $out "SumatraPDF.exe") -Force
+              Write-Host "SumatraPDF bundled at $($exe.FullName)"
+            }
+          } catch {
+            Write-Host "SumatraPDF download failed: $_  (build will continue without bundling)"
+          }
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      # Place SumatraPDF.exe next to the built .exe so it is resolved at runtime
+      # by SumatraResolver (beside Platform.resolvedExecutable).
+      - name: Stage SumatraPDF next to the built executable
+        shell: pwsh
+        run: |
+          $release = "build\windows\x64\runner\Release"
+          $asset = "assets\SumatraPDF.exe"
+          if (Test-Path $asset) {
+            Copy-Item $asset -Destination (Join-Path $release "SumatraPDF.exe") -Force
+            Write-Host "SumatraPDF.exe copied into Release folder"
+          } else {
+            Write-Host "No SumatraPDF.exe to stage; app will prompt user to download it."
+          }
+
+      - name: Zip portable build
+        shell: pwsh
+        run: |
+          $release = "build\windows\x64\runner\Release"
+          $zip = Join-Path $env:RUNNER_TEMP "PrintFlow-windows-portable.zip"
+          Compress-Archive -Path "$release\*" -DestinationPath $zip
+          Write-Host "Zipped to $zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintFlow-windows-portable
+          path: build/windows/x64/runner/Release
+          retention-days: 30
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintFlow-windows-portable-zip
+          path: ${{ runner.temp }}/PrintFlow-windows-portable.zip
+          retention-days: 30
