@@ -89,6 +89,52 @@ jobs:
             Write-Host "No SumatraPDF.exe to stage; app will prompt user to download it."
           }
 
+      # Bundle the Microsoft Visual C++ runtime DLLs (MSVCP140.dll,
+      # VCRUNTIME140.dll, VCRUNTIME140_1.dll) next to printflow.exe. Without
+      # these, a fresh Windows PC that has never had the VC++ Redistributable
+      # installed will show "MSVCP140.dll was not found" / "VCRUNTIME140_1.dll
+      # was not found" errors on launch. Microsoft permits "local deployment"
+      # of these specific CRT DLLs alongside an application, which makes the
+      # portable zip truly self-contained.
+      - name: Bundle Visual C++ runtime DLLs (local deployment)
+        shell: pwsh
+        run: |
+          $release = "build\windows\x64\runner\Release"
+          $dlls = @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+          $copied = 0
+          foreach ($d in $dlls) {
+            # System32 holds the 64-bit versions on 64-bit Windows — exactly
+            # what a 64-bit Flutter build needs.
+            $src = Join-Path $env:SystemRoot "System32\$d"
+            if (Test-Path $src) {
+              Copy-Item $src -Destination (Join-Path $release $d) -Force
+              Write-Host "Bundled $d"
+              $copied++
+            } else {
+              Write-Host "WARNING: $d not found in System32"
+            }
+          }
+          # Fallback: if any DLL was missing, fetch the official VC Redist
+          # and extract the DLLs from it (the redist is itself an MSI bundle;
+          # the .cab inside contains the raw DLLs).
+          if ($copied -lt $dlls.Count) {
+            Write-Host "Some DLLs missing — downloading VC++ Redistributable and extracting..."
+            $redist = Join-Path $env:RUNNER_TEMP "vc_redist.x64.exe"
+            Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $redist
+            # The redist bundles DLLs as TAIL resources; extract them.
+            $tmpExtract = Join-Path $env:RUNNER_TEMP "vcredist_extract"
+            New-Item -ItemType Directory -Force -Path $tmpExtract | Out-Null
+            Start-Process -FilePath $redist -ArgumentList "/install","/quiet","/norestart" -Wait
+            foreach ($d in $dlls) {
+              $src = Join-Path $env:SystemRoot "System32\$d"
+              if (Test-Path $src) {
+                Copy-Item $src -Destination (Join-Path $release $d) -Force
+                Write-Host "Bundled $d (after redist install)"
+              }
+            }
+          }
+          Write-Host "VC++ runtime DLLs staged: $copied/$($dlls.Count)"
+
       - name: Zip portable build
         shell: pwsh
         run: |
