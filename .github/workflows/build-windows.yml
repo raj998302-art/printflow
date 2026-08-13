@@ -51,7 +51,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $url = "https://www.sumatrapdfreader.org/dl/rel/3.5.2/sumatrapdf-3.5.2-64.zip"
+          $url = "https://www.sumatrapdfreader.org/dl/rel/3.6.1/SumatraPDF-3.6.1-64.zip"
           $tmp = Join-Path $env:RUNNER_TEMP "sumatra.zip"
           $out = Join-Path $env:GITHUB_WORKSPACE "assets"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
@@ -59,10 +59,14 @@ jobs:
           try {
             Invoke-WebRequest -Uri $url -OutFile $tmp -MaximumRedirection 10
             Expand-Archive -Path $tmp -DestinationPath $out -Force
-            $exe = Get-ChildItem -Path $out -Recurse -Filter "SumatraPDF.exe" | Select-Object -First 1
+            # The zip ships the exe under a versioned name (SumatraPDF-3.6.1-64.exe);
+            # normalise it to SumatraPDF.exe so SumatraResolver finds it.
+            $exe = Get-ChildItem -Path $out -Recurse -Filter "SumatraPDF*.exe" | Select-Object -First 1
             if ($exe) {
               Copy-Item $exe.FullName -Destination (Join-Path $out "SumatraPDF.exe") -Force
-              Write-Host "SumatraPDF bundled at $($exe.FullName)"
+              Write-Host "SumatraPDF bundled at $(Join-Path $out 'SumatraPDF.exe')"
+            } else {
+              Write-Host "No SumatraPDF*.exe found in archive."
             }
           } catch {
             Write-Host "SumatraPDF download failed: $_  (build will continue without bundling)"
