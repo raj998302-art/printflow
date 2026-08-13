@@ -199,4 +199,36 @@ class PrinterService {
     }
     return ColorMode.grayscale;
   }
+
+  /// Opens the Windows **"Printing Preferences"** dialog for [printerName] —
+  /// the native printer properties window where the operator selects paper
+  /// tray, print quality, paper size, orientation, etc.
+  ///
+  /// Uses `rundll32 printui.dll,PrintUIEntry /e /n "<printer>"` which is the
+  /// official Windows API for this dialog. The process blocks until the user
+  /// closes the dialog, so callers can `await` it and then proceed.
+  ///
+  /// Settings saved here become the printer's **user-level defaults** for the
+  /// current session. When SumatraPDF subsequently prints with `-print-to`
+  /// (without overriding tray/paper-size via `-print-settings`), it uses these
+  /// defaults — so the tray the operator picks here is the tray the batch
+  /// actually prints from.
+  ///
+  /// Returns true if the dialog opened and closed normally, false on error.
+  static Future<bool> openPrinterProperties(String printerName) async {
+    if (!Platform.isWindows) return false;
+    try {
+      final result = await Process.run('rundll32', [
+        'printui.dll,PrintUIEntry',
+        '/e',
+        '/n',
+        printerName,
+      ]);
+      // rundll32 exit code isn't always reliable for dialog operations;
+      // but a 0 or 1223 (user cancelled) both mean the dialog ran fine.
+      return result.exitCode == 0 || result.exitCode == 1223;
+    } catch (e) {
+      return false;
+    }
+  }
 }

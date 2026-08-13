@@ -28,6 +28,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   ColorMode _color = ColorMode.grayscale;
   DuplexMode _duplex = DuplexMode.none;
   bool _loadingPrinters = true;
+  bool _showPrintDialog = true;
+  bool _openingDialog = false;
 
   @override
   void initState() {
@@ -288,6 +290,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (mounted) setState(() {});
   }
 
+  /// Opens the Windows "Printing Preferences" dialog for the selected printer
+  /// — the native window where the operator selects paper tray, quality,
+  /// paper size, orientation, etc. Settings saved here become the printer's
+  /// session defaults, which SumatraPDF then uses when printing.
+  Future<void> _openPrinterProperties() async {
+    final printer = _selectedPrinter;
+    if (printer == null || printer.isEmpty) return;
+    setState(() => _openingDialog = true);
+    try {
+      await PrinterService.openPrinterProperties(printer);
+    } finally {
+      if (mounted) setState(() => _openingDialog = false);
+    }
+  }
+
+  /// Called when the user clicks "Start Batch". If the "Show print dialog"
+  /// checkbox is ON, first opens the Windows printer properties dialog so the
+  /// operator can set tray / paper / quality, then starts the batch after
+  /// they close it.
+  Future<void> _onStartBatch(batch) async {
+    if (batch.jobs.isEmpty || _selectedPrinter == null) return;
+
+    if (_showPrintDialog) {
+      await _openPrinterProperties();
+      // The user may have closed the dialog via Cancel — we still start the
+      // batch because they explicitly clicked "Start Batch". The printer's
+      // previous defaults apply.
+    }
+
+    if (!mounted) return;
+    batch.startBatch(printerName: _selectedPrinter);
+  }
+
   Widget _configBar(batch, bool running) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -309,6 +344,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   setState(() => _loadingPrinters = true);
                   _loadPrinters();
                 },
+              ),
+              // Opens the Windows "Printing Preferences" dialog for the
+              // selected printer — where the operator picks paper tray,
+              // quality, paper size, orientation, etc. before printing.
+              OutlinedButton.icon(
+                icon: _openingDialog
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.tune, size: 18),
+                label: const Text('Printer Properties…'),
+                onPressed: (_selectedPrinter == null || _openingDialog)
+                    ? null
+                    : _openPrinterProperties,
               ),
               _stepper(
                 label: 'Copies',
@@ -352,13 +403,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 '${batch.jobs.where((j) => j.preflightFailed).length} flagged',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              const SizedBox(width: 16),
+              // When checked, clicking "Start Batch" first opens the Windows
+              // printer properties dialog so the operator can set tray / paper
+              // / quality, then starts the batch after they close it.
+              Checkbox(
+                value: _showPrintDialog,
+                onChanged: running
+                    ? null
+                    : (v) => setState(() => _showPrintDialog = v ?? true),
+              ),
+              const Text('Show print dialog before batch',
+                  style: TextStyle(fontSize: 13)),
               const Spacer(),
               FilledButton.icon(
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Start Batch'),
-                onPressed: (running || batch.jobs.isEmpty || _selectedPrinter == null)
+                onPressed: (running ||
+                        batch.jobs.isEmpty ||
+                        _selectedPrinter == null ||
+                        _openingDialog)
                     ? null
-                    : () => batch.startBatch(printerName: _selectedPrinter),
+                    : () => _onStartBatch(batch),
               ),
             ],
           ),
