@@ -38,17 +38,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _loadPrinters() async {
-    // Wait briefly for the SumatraPDF path to resolve (it's checked beside
-    // the exe at startup). If it doesn't resolve in 3s, proceed — the WMI
-    // fallback in PrinterService will find printers anyway.
-    String? sumatra;
-    try {
-      sumatra = await ref.read(sumatraPathProvider.future)
-          .timeout(const Duration(seconds: 3));
-    } catch (_) {
-      sumatra = null;
-    }
-    final printers = await PrinterService.listPrinters(sumatraExePath: sumatra);
+    // List printers via WMI (Get-CimInstance Win32_Printer). We deliberately
+    // do NOT use SumatraPDF -list-printers because on some Windows configs it
+    // opens the SumatraPDF GUI window and never exits, hanging the app and
+    // popping up an unwanted window. WMI returns the exact same names with
+    // no window and a hard timeout.
+    final printers = await PrinterService.listPrinters();
     if (mounted) {
       setState(() {
         _printers = printers;

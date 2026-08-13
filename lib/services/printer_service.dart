@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:printflow/models/printer_profile.dart';
 import 'package:printflow/models/print_job.dart';
-import 'package:printflow/utils/sumatra.dart';
 
 /// Lists installed Windows printers (PRD Module 3 — Printer selector).
 ///
@@ -19,32 +18,30 @@ class PrinterService {
   PrinterService._();
 
   /// Returns the list of installed printers, with the system default flagged.
+  ///
+  /// ⚠️ We deliberately do NOT use `SumatraPDF -list-printers` here. Although
+  /// the PRD §10 mentions it as a "preferred" approach, in practice SumatraPDF
+  /// sometimes opens its GUI window instead of printing to stdout and never
+  /// exits — which hangs the whole app startup and pops up an unwanted
+  /// SumatraPDF window. WMI returns the exact same printer names (they all
+  /// come from the Windows print spooler) and never opens any window, so it
+  /// is strictly safer. The printer names from WMI are the exact names
+  /// SumatraPDF will later accept via `-print-to`.
   static Future<List<PrinterProfile>> listPrinters({
     String? sumatraExePath,
   }) async {
     if (!Platform.isWindows) return const [];
 
-    // 1. Try SumatraPDF first (if bundled).
-    List<String> names = const [];
-    if (sumatraExePath != null && await File(sumatraExePath).exists()) {
-      try {
-        names = await SumatraResolver.listPrintersViaSumatra(sumatraExePath);
-      } catch (_) {
-        names = const [];
-      }
-    }
+    // Try the fastest reliable method first: WMI via Get-CimInstance (works on
+    // ALL Windows editions, no windows opened, no external process).
+    List<String> names = await _listViaWmiCim();
 
-    // 2. Fall back to PowerShell Get-Printer.
+    // Fall back to Get-Printer (PrintManagement module — Windows 8+).
     if (names.isEmpty) {
       names = await _listViaGetPrinter();
     }
 
-    // 3. Fall back to WMI via Get-CimInstance (available on ALL editions).
-    if (names.isEmpty) {
-      names = await _listViaWmiCim();
-    }
-
-    // 4. Last resort: wmic (legacy command, pre-Windows 10).
+    // Last resort: wmic (legacy command, pre-Windows 10).
     if (names.isEmpty) {
       names = await _listViaWmic();
     }
@@ -79,6 +76,7 @@ class PrinterService {
 
   /// PowerShell `Get-Printer` — requires the PrintManagement module
   /// (Windows 8+ / Server 2012+). Not available on some Home editions.
+  /// Hard 8s timeout so a misbehaving PowerShell can never hang the app.
   static Future<List<String>> _listViaGetPrinter() async {
     try {
       final result = await Process.run('powershell', [
@@ -86,7 +84,7 @@ class PrinterService {
         '-NonInteractive',
         '-Command',
         r'Get-Printer | Select-Object -ExpandProperty Name',
-      ]);
+      ]).timeout(const Duration(seconds: 8));
       if (result.exitCode != 0) return const [];
       return _parseLines(result.stdout);
     } catch (_) {
@@ -95,7 +93,7 @@ class PrinterService {
   }
 
   /// WMI via `Get-CimInstance -ClassName Win32_Printer` — works on ALL
-  /// Windows editions (PRD §10 fallback).
+  /// Windows editions (PRD §10 fallback). Hard 8s timeout.
   static Future<List<String>> _listViaWmiCim() async {
     try {
       final result = await Process.run('powershell', [
@@ -103,7 +101,7 @@ class PrinterService {
         '-NonInteractive',
         '-Command',
         r'Get-CimInstance -ClassName Win32_Printer | Select-Object -ExpandProperty Name',
-      ]);
+      ]).timeout(const Duration(seconds: 8));
       if (result.exitCode != 0) return const [];
       return _parseLines(result.stdout);
     } catch (_) {
@@ -113,13 +111,14 @@ class PrinterService {
 
   /// `wmic printer get name` — legacy command-line tool, present on all
   /// Windows versions up to Windows 11 (deprecated but still functional).
+  /// Hard 8s timeout.
   static Future<List<String>> _listViaWmic() async {
     try {
       final result = await Process.run('wmic', [
         'printer',
         'get',
         'name',
-      ]);
+      ]).timeout(const Duration(seconds: 8));
       if (result.exitCode != 0) return const [];
       // wmic outputs a table with a "Name" header line; skip it.
       final lines = _parseLines(result.stdout);
@@ -141,7 +140,7 @@ class PrinterService {
         .toList();
   }
 
-  /// System default printer name (best-effort, via WMI).
+  /// System default printer name (best-effort, via WMI). Hard 5s timeout.
   static Future<String?> _defaultPrinterName() async {
     try {
       // Modern approach: WMI Default flag.
@@ -150,7 +149,7 @@ class PrinterService {
         '-NonInteractive',
         '-Command',
         r'(Get-CimInstance -ClassName Win32_Printer | Where-Object { $_.Default -eq $true } | Select-Object -First 1).Name',
-      ]);
+      ]).timeout(const Duration(seconds: 5));
       if (result.exitCode == 0) {
         final name = (result.stdout as String).trim();
         if (name.isNotEmpty) return name;
@@ -166,7 +165,7 @@ class PrinterService {
         'Default=TRUE',
         'get',
         'name',
-      ]);
+      ]).timeout(const Duration(seconds: 5));
       if (result.exitCode == 0) {
         final lines = _parseLines(result.stdout);
         if (lines.isNotEmpty && lines.first.toLowerCase() == 'name') {

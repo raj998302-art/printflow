@@ -130,16 +130,17 @@ class PrintEngine {
   }
 
   /// Snapshot of current job ids on [printerName] — to diff against after
-  /// printing so we can identify the job we just created.
+  /// printing so we can identify the job we just created. Hard 5s timeout.
   Future<Set<int>> _currentJobIds(String printerName) async {
     if (!Platform.isWindows) return const {};
     try {
       final r = await Process.run('powershell', [
         '-NoProfile',
+        '-NonInteractive',
         '-Command',
         'Get-PrintJob -PrinterName "$printerName" '
             r'| Select-Object -ExpandProperty ID',
-      ]);
+      ]).timeout(const Duration(seconds: 5));
       if (r.exitCode != 0) return const {};
       return (r.stdout as String)
           .split('\n')
@@ -159,10 +160,25 @@ class PrintEngine {
     return diff.isEmpty ? null : diff.first;
   }
 
-  /// Helper exposed for the Page Selector / Test Print button: validates the
-  /// printer name against the exact spelling SumatraPDF expects.
+  /// Validates that [printerName] is an installed Windows printer.
+  ///
+  /// Uses WMI (not SumatraPDF) so it never opens a separate window and
+  /// can never hang the app. The printer names from WMI are the exact names
+  /// SumatraPDF accepts via `-print-to`.
   Future<bool> printerNameValid(String printerName) async {
-    final names = await SumatraResolver.listPrintersViaSumatra(sumatraPath);
-    return names.contains(printerName);
+    try {
+      final r = await Process.run('powershell', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Get-CimInstance -ClassName Win32_Printer -Filter "Name = \'$printerName\'" '
+            r'| Select-Object -ExpandProperty Name',
+      ]).timeout(const Duration(seconds: 5));
+      if (r.exitCode != 0) return false;
+      final found = (r.stdout as String).trim();
+      return found.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 }

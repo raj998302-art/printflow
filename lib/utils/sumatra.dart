@@ -45,24 +45,34 @@ class SumatraResolver {
     return null;
   }
 
-  /// Lists every printer name registered in Windows (Layer used by Module 3
-  /// printer selector and by SumatraPDF name validation).
+  /// Lists every printer name registered in Windows via SumatraPDF's own
+  /// `-list-printers` output.
   ///
-  /// Implementation shells out to SumatraPDF itself (`-list-printers`) when
-  /// available because that is the exact spelling SumatraPDF will later match
-  /// against — eliminating the "wrong printer name" silent-fail from PRD §10.
+  /// ⚠️ This call has a hard 5-second timeout — SumatraPDF is supposed to
+  /// print the list to stdout and exit immediately, but on some Windows
+  /// configs it instead opens its GUI window and never exits (which would
+  /// hang the caller forever). The timeout guarantees we never block the UI.
+  ///
+  /// Returns an empty list on timeout or any error. Callers should treat
+  /// this as best-effort and fall back to WMI (see PrinterService).
   static Future<List<String>> listPrintersViaSumatra(String exePath) async {
-    final result = await Process.run(exePath, ['-list-printers']);
-    if (result.exitCode != 0) return const [];
-    final lines = (result.stdout as String)
-        .split('\n')
-        .map((l) => l.trim())
-        .where((l) => l.isNotEmpty)
-        .toList();
-    // Output format: "Printer '<name>'"
-    return lines.map((l) {
-      final m = RegExp(r"^Printer '(.+)'$").firstMatch(l);
-      return m != null ? m.group(1)! : l;
-    }).toList();
+    try {
+      final result = await Process.run(exePath, ['-list-printers'])
+          .timeout(const Duration(seconds: 5));
+      if (result.exitCode != 0) return const [];
+      final lines = (result.stdout as String)
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .toList();
+      // Output format: "Printer '<name>'"
+      return lines.map((l) {
+        final m = RegExp(r"^Printer '(.+)'$").firstMatch(l);
+        return m != null ? m.group(1)! : l;
+      }).toList();
+    } catch (_) {
+      // Timeout or process error — caller falls back to WMI.
+      return const [];
+    }
   }
 }
